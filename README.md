@@ -23,6 +23,7 @@ The `read` tool outputs each line with a unique identifier: `LINE:HASH|content`.
 
 ### 2. Grep
 The `grep` tool also emits hashline references (`path:LINE:HASH|content`), allowing for a seamless Search → Edit workflow.
+By default, `grep` remains disabled unless explicitly enabled via `--tools ...grep...`.
 
 ### 3. Edit
 The `edit` tool uses these anchors to perform surgical modifications.
@@ -55,7 +56,7 @@ The `edit` tool uses these anchors to perform surgical modifications.
 
 This extension isn't just a simple hash matcher. It includes advanced heuristics ported from `oh-my-pi` to make editing robust:
 
-- **Smart Relocation**: If a line's number changes but its hash is unique, the tool automatically relocates the edit to the new position.
+- **Smart Relocation**: If a line number drifts, the tool treats `LINE` as a hint and relocates by `HASH` within a local window (±20 lines). Relocation only happens when the hash match is unique in that window.
 - **Merge Detection**: Correctly handles cases where the model merges multiple lines (e.g., continuation lines) into one.
 - **Echo Stripping**: Automatically removes "echoes" of the anchor lines if the model accidentally includes them in the replacement text.
 - **Wrapped Line Restoration**: Detects when a model unintentionally wraps a long line and restores it to its original single-line form.

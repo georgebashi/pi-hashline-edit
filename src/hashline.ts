@@ -50,6 +50,7 @@ const DICT = Array.from({ length: HASH_MOD }, (_, i) => i.toString(RADIX).padSta
 const HASHLINE_PREFIX_RE = /^\d+:[0-9a-zA-Z]{1,16}\|/;
 const DIFF_PLUS_RE = /^\+(?!\+)/;
 const CONFUSABLE_HYPHENS_RE = /[\u2010\u2011\u2012\u2013\u2014\u2212\uFE63\uFF0D]/g;
+const HASH_RELOCATION_WINDOW = 20;
 
 function xxh32(input: string): number {
 	return XXH.h32(0).update(input).digest().toNumber() >>> 0;
@@ -88,7 +89,7 @@ function formatMismatchError(mismatches: HashMismatch[], fileLines: string[]): s
 
 	const sorted = [...displayLines].sort((a, b) => a - b);
 	const out: string[] = [
-		`${mismatches.length} line${mismatches.length > 1 ? "s have" : " has"} changed since last read. Use the updated LINE:HASH references shown below (>>> marks changed lines).`,
+		`${mismatches.length} line${mismatches.length > 1 ? "s have" : " has"} changed since last read. Auto-relocation checks only within ±${HASH_RELOCATION_WINDOW} lines of each anchor. Use the updated LINE:HASH references shown below (>>> marks changed lines).`,
 		"",
 	];
 
@@ -291,19 +292,35 @@ export function applyHashlineEdits(
 	}
 	let explicitlyTouchedLines = collectExplicitlyTouchedLines();
 
-	// Build unique-hash index for relocation
-	const uniqueByHash = new Map<string, number>();
-	const dupeHashes = new Set<string>();
+	// Build hash index for local-window relocation
+	const lineHashes: string[] = [];
+	const hashToLines = new Map<string, number[]>();
 	for (let i = 0; i < fileLines.length; i++) {
 		throwIfAborted(signal);
-		const h = computeLineHash(i + 1, fileLines[i]);
-		if (dupeHashes.has(h)) continue;
-		if (uniqueByHash.has(h)) {
-			uniqueByHash.delete(h);
-			dupeHashes.add(h);
-		} else {
-			uniqueByHash.set(h, i + 1);
+		const lineNumber = i + 1;
+		const h = computeLineHash(lineNumber, fileLines[i]);
+		lineHashes.push(h);
+		const lines = hashToLines.get(h);
+		if (lines) lines.push(lineNumber);
+		else hashToLines.set(h, [lineNumber]);
+	}
+
+	const relocationNotes = new Set<string>();
+
+	function findRelocationLine(expectedHash: string, hintLine: number): number | undefined {
+		const candidates = hashToLines.get(expectedHash);
+		if (!candidates?.length) return undefined;
+
+		const minLine = Math.max(1, hintLine - HASH_RELOCATION_WINDOW);
+		const maxLine = Math.min(fileLines.length, hintLine + HASH_RELOCATION_WINDOW);
+		let match: number | undefined;
+
+		for (const candidate of candidates) {
+			if (candidate < minLine || candidate > maxLine) continue;
+			if (match !== undefined) return undefined; // ambiguous within window
+			match = candidate;
 		}
+		return match;
 	}
 
 	// Validate all refs before mutation
@@ -313,14 +330,18 @@ export function applyHashlineEdits(
 		if (ref.line < 1 || ref.line > fileLines.length)
 			throw new Error(`Line ${ref.line} does not exist (file has ${fileLines.length} lines)`);
 		const expected = ref.hash.toLowerCase();
-		const actual = computeLineHash(ref.line, fileLines[ref.line - 1]);
+		const originalLine = ref.line;
+		const actual = lineHashes[originalLine - 1];
 		if (actual === expected) return true;
-		const relocated = uniqueByHash.get(expected);
+		const relocated = findRelocationLine(expected, originalLine);
 		if (relocated !== undefined) {
 			ref.line = relocated;
+			relocationNotes.add(
+				`Auto-relocated anchor ${originalLine}:${ref.hash} -> ${relocated}:${ref.hash} (window ±${HASH_RELOCATION_WINDOW}).`,
+			);
 			return true;
 		}
-		mismatches.push({ line: ref.line, expected: ref.hash, actual });
+		mismatches.push({ line: originalLine, expected: ref.hash, actual });
 		return false;
 	}
 
@@ -352,8 +373,8 @@ export function applyHashlineEdits(
 					spec.start.line = originalStart;
 					spec.end.line = originalEnd;
 					mismatches.push(
-						{ line: originalStart, expected: spec.start.hash, actual: computeLineHash(originalStart, fileLines[originalStart - 1]) },
-						{ line: originalEnd, expected: spec.end.hash, actual: computeLineHash(originalEnd, fileLines[originalEnd - 1]) },
+						{ line: originalStart, expected: spec.start.hash, actual: lineHashes[originalStart - 1] },
+						{ line: originalEnd, expected: spec.end.hash, actual: lineHashes[originalEnd - 1] },
 					);
 				}
 			}
@@ -505,7 +526,7 @@ export function applyHashlineEdits(
 		}
 	}
 
-	const warnings: string[] = [];
+	const warnings: string[] = [...relocationNotes];
 	let diff = Math.abs(fileLines.length - origLines.length);
 	for (let i = 0; i < Math.min(fileLines.length, origLines.length); i++) {
 		if (fileLines[i] !== origLines[i]) diff++;

@@ -5,8 +5,9 @@ Rules:
 - Prefer anchored edits (`set_line`, `replace_lines`, `insert_after`)
 - Use `replace` only when anchors are unavailable
 - `new_text`/`text` is plain replacement content (no `LINE:HASH`, no diff `+` markers)
+- Line numbers may drift after edits; anchors can auto-relocate by hash within a nearby window (±20) when the match is unique
 - If hash mismatch shows `>>>`, retry with those updated refs
-- If you already edited a file in this turn, re-read before the next edit
+- If multiple nearby lines share the same hash, re-read before retrying
 
 Variants:
 - `{ set_line: { anchor, new_text } }`

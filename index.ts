@@ -13,8 +13,12 @@ import { registerGrepTool } from "./src/grep";
 import { registerReadTool } from "./src/read";
 
 export default function (pi: ExtensionAPI): void {
+	const grepRequested = pi.getActiveTools().includes("grep");
+
 	registerReadTool(pi);
-	registerGrepTool(pi);
+	if (grepRequested) {
+		registerGrepTool(pi);
+	}
 	registerEditTool(pi);
 
 	pi.on("session_start", async (_event, ctx) => {

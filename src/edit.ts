@@ -167,7 +167,7 @@ export function registerEditTool(pi: ExtensionAPI): void {
 									`Edit ${e.editIndex}: replacement for ${e.loc} is identical to current content:\n  ${e.loc}| ${e.currentContent}`,
 							)
 							.join("\n");
-					diagnostic += "\nRe-read the file to see the current state.";
+					diagnostic += "\nYour content must differ from what the file already contains. Re-read the file to see the current state.";
 				} else {
 					// Edits were not literally identical but heuristics normalized them back
 					const lines = result.split("\n");

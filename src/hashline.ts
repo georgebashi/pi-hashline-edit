@@ -475,6 +475,8 @@ export function applyHashlineEdits(
 		return null;
 	}
 
+	const warnings: string[] = [...relocationNotes];
+
 	// Apply edits bottom-up
 	for (const { spec, dstLines, idx } of sorted) {
 		throwIfAborted(signal);
@@ -521,6 +523,27 @@ export function applyHashlineEdits(
 				noopEdits.push({ editIndex: idx, loc: `${spec.start.line}:${spec.start.hash}`, currentContent: orig.join("\n") });
 				continue;
 			}
+			// Auto-correct trailing duplicate: if the last replacement line duplicates
+			// the next surviving line after the range, the model likely echoed the
+			// boundary. Strip the duplicate to avoid doubled lines (matches parent).
+			if (newL.length > 0) {
+				const trailingLine = newL[newL.length - 1];
+				const nextSurvivingLine = fileLines[spec.end.line]; // 0-indexed: line after end
+				if (
+					trailingLine !== undefined &&
+					trailingLine.trim().length > 0 &&
+					nextSurvivingLine !== undefined &&
+					trailingLine.trim() === nextSurvivingLine.trim() &&
+					// Safety: only correct when end-line content differs from the duplicate.
+					// If end already points to the boundary, matching next line is coincidence.
+					fileLines[spec.end.line - 1].trim() !== trailingLine.trim()
+				) {
+					newL = newL.slice(0, -1);
+					warnings.push(
+						`Auto-corrected range replace ${spec.start.line}:${spec.start.hash}-${spec.end.line}:${spec.end.hash}: removed trailing replacement line "${trailingLine.trim()}" that duplicated next surviving line`,
+					);
+				}
+			}
 			fileLines.splice(spec.start.line - 1, count, ...newL);
 			track(spec.start.line);
 		} else {
@@ -535,7 +558,6 @@ export function applyHashlineEdits(
 		}
 	}
 
-	const warnings: string[] = [...relocationNotes];
 	let diff = Math.abs(fileLines.length - origLines.length);
 	for (let i = 0; i < Math.min(fileLines.length, origLines.length); i++) {
 		if (fileLines[i] !== origLines[i]) diff++;

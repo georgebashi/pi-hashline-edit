@@ -134,7 +134,7 @@ function stripNewLinePrefixes(lines: string[]): string[] {
 	}
 
 	if (!nonEmpty) return lines;
-	const stripHash = hashCount > 0 && hashCount >= nonEmpty * 0.5;
+	const stripHash = hashCount > 0 && hashCount === nonEmpty;
 	const stripPlus = !stripHash && plusCount > 0 && plusCount >= nonEmpty * 0.5;
 	if (!stripHash && !stripPlus) return lines;
 

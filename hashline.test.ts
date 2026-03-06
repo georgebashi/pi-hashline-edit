@@ -205,6 +205,26 @@ describe("resolveEditAnchors", () => {
 		expect(() => resolveEditAnchors(edits)).toThrow(/at least one anchor/);
 	});
 
+	it("throws on malformed pos for append (not silently degraded to EOF)", () => {
+		const edits: HashlineToolEdit[] = [{ op: "append", pos: "garbage", lines: ["new"] }];
+		expect(() => resolveEditAnchors(edits)).toThrow(/Invalid line reference/);
+	});
+
+	it("throws on malformed pos for prepend (not silently degraded to BOF)", () => {
+		const edits: HashlineToolEdit[] = [{ op: "prepend", pos: "garbage", lines: ["new"] }];
+		expect(() => resolveEditAnchors(edits)).toThrow(/Invalid line reference/);
+	});
+
+	it("throws on malformed pos for replace", () => {
+		const edits: HashlineToolEdit[] = [{ op: "replace", pos: "not-valid", lines: ["x"] }];
+		expect(() => resolveEditAnchors(edits)).toThrow(/Invalid line reference/);
+	});
+
+	it("throws on malformed end for replace with valid pos", () => {
+		const edits: HashlineToolEdit[] = [{ op: "replace", pos: "5#MQ", end: "garbage", lines: ["x"] }];
+		expect(() => resolveEditAnchors(edits)).toThrow(/Invalid line reference/);
+	});
+
 	it("resolves append with pos", () => {
 		const edits: HashlineToolEdit[] = [{ op: "append", pos: "5#MQ", lines: ["new"] }];
 		const resolved = resolveEditAnchors(edits);

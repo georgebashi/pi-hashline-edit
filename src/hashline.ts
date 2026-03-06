@@ -154,18 +154,14 @@ export function hashlineParseText(edit: string[] | string | null): string[] {
 	return lines;
 }
 
-function tryParseRef(raw: string): Anchor | undefined {
-	try {
-		return parseLineRef(raw);
-	} catch {
-		return undefined;
-	}
-}
 
 /**
  * Map flat tool-schema edits into typed internal representations.
  *
- * Resilient: as long as at least one anchor exists, we execute.
+ * Strict: provided anchors must parse successfully. Missing anchors are
+ * fine for append (→ EOF) and prepend (→ BOF), but a malformed anchor
+ * that was explicitly supplied is always an error.
+ *
  * - replace + pos only → single-line replace
  * - replace + pos + end → range replace
  * - append + pos or end → append after that anchor
@@ -178,8 +174,8 @@ export function resolveEditAnchors(edits: HashlineToolEdit[]): HashlineEdit[] {
 	const result: HashlineEdit[] = [];
 	for (const edit of edits) {
 		const lines = hashlineParseText(edit.lines);
-		const tag = edit.pos ? tryParseRef(edit.pos) : undefined;
-		const end = edit.end ? tryParseRef(edit.end) : undefined;
+		const tag = edit.pos ? parseLineRef(edit.pos) : undefined;
+		const end = edit.end ? parseLineRef(edit.end) : undefined;
 
 		// Normalize op — default unknown values to "replace"
 		const op = edit.op === "append" || edit.op === "prepend" ? edit.op : "replace";

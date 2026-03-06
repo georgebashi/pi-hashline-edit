@@ -2,8 +2,9 @@ import type { ExtensionAPI, EditToolDetails } from "@mariozechner/pi-coding-agen
 import { Type } from "@sinclair/typebox";
 import type { Static } from "@sinclair/typebox";
 import { readFileSync } from "fs";
-import { access as fsAccess, readFile as fsReadFile, writeFile as fsWriteFile } from "fs/promises";
-import { constants } from "fs";
+import { access as fsAccess, readFile as fsReadFile, writeFile as fsWriteFile, unlink as fsUnlink, mkdir as fsMkdir } from "fs/promises";
+import { constants, existsSync } from "fs";
+import { dirname } from "path";
 import { detectLineEnding, generateDiffString, normalizeToLF, replaceText, restoreLineEndings, stripBom } from "./edit-diff";
 import {
 	applyHashlineEdits,
@@ -78,8 +79,21 @@ export function registerEditTool(pi: ExtensionAPI): void {
 			const rawPath = parsed.path;
 			const path = rawPath.replace(/^@/, "");
 			const absolutePath = resolveToCwd(path, ctx.cwd);
+			const deleteFile = parsed.delete;
+			const move = parsed.move;
+			const resolvedMove = move ? resolveToCwd(move.replace(/^@/, ""), ctx.cwd) : undefined;
 			throwIfAborted(signal);
 
+			// ── File-level delete ──
+			if (deleteFile) {
+				if (existsSync(absolutePath)) {
+					await fsUnlink(absolutePath);
+				}
+				return {
+					content: [{ type: "text", text: `Deleted ${path}` }],
+					details: { diff: "", firstChangedLine: undefined } as EditToolDetails,
+				};
+			}
 			// ── Legacy input normalization ──
 			const legacyOldText =
 				typeof input.oldText === "string"
@@ -117,7 +131,7 @@ export function registerEditTool(pi: ExtensionAPI): void {
 					"Legacy top-level oldText/newText input was normalized to text_replace. Prefer the edits[] format.";
 			}
 
-			if (!toolEdits.length && !textReplaceEdits.length) {
+			if (!toolEdits.length && !textReplaceEdits.length && !move) {
 				return {
 					content: [{ type: "text", text: "No edits provided." }],
 					isError: true,
@@ -154,7 +168,7 @@ export function registerEditTool(pi: ExtensionAPI): void {
 				result = rep.content;
 			}
 
-			if (originalNormalized === result) {
+			if (originalNormalized === result && !move) {
 				let diagnostic = `No changes made to ${path}. The edits produced identical content.`;
 				if (anchorResult.noopEdits?.length) {
 					diagnostic +=
@@ -196,7 +210,16 @@ export function registerEditTool(pi: ExtensionAPI): void {
 			}
 
 			throwIfAborted(signal);
-			await fsWriteFile(absolutePath, bom + restoreLineEndings(result, originalEnding), "utf-8");
+
+			// ── Write result (possibly to moved path) ──
+			const writePath = resolvedMove ?? absolutePath;
+			if (resolvedMove) {
+				await fsMkdir(dirname(resolvedMove), { recursive: true });
+			}
+			await fsWriteFile(writePath, bom + restoreLineEndings(result, originalEnding), "utf-8");
+			if (resolvedMove && resolvedMove !== absolutePath) {
+				await fsUnlink(absolutePath);
+			}
 
 			const diffResult = generateDiffString(originalNormalized, result);
 			const warnings: string[] = [];
@@ -204,8 +227,9 @@ export function registerEditTool(pi: ExtensionAPI): void {
 			if (legacyNormalizationWarning) warnings.push(legacyNormalizationWarning);
 			const warn = warnings.length ? `\n\nWarnings:\n${warnings.join("\n")}` : "";
 
+			const resultText = move ? `Moved ${path} to ${move}` : `Updated ${path}`;
 			return {
-				content: [{ type: "text", text: `Updated ${path}${warn}` }],
+				content: [{ type: "text", text: `${resultText}${warn}` }],
 				details: {
 					diff: diffResult.diff,
 					firstChangedLine: anchorResult.firstChangedLine ?? diffResult.firstChangedLine,

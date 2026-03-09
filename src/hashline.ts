@@ -47,7 +47,7 @@ const DICT = Array.from({ length: 256 }, (_, i) => {
 });
 
 /** Pattern matching hashline display format prefixes: `LINE#ID:CONTENT` and `#ID:CONTENT` */
-const HASHLINE_PREFIX_RE = /^\s*(?:>>>|>>)?\s*(?:\d+\s*#\s*|#)\s*[ZPMQVRWSNKTXJBYH]{1,16}:/;
+const HASHLINE_PREFIX_RE = /^\s*(?:>>>|>>)?\s*(?:\d+\s*#\s*|#\s*)[ZPMQVRWSNKTXJBYH]{2}:/;
 const DIFF_PLUS_RE = /^\+(?!\+)/;
 const HASH_RELOCATION_WINDOW = 20;
 
@@ -213,6 +213,18 @@ export type HashlineToolEdit = {
 	lines: string[] | string | null;
 };
 
+
+const MIN_AUTOCORRECT_LENGTH = 2;
+
+function shouldAutocorrect(line: string, otherLine: string): boolean {
+	if (!line || line !== otherLine) return false;
+	line = line.trim();
+	if (line.length < MIN_AUTOCORRECT_LENGTH) {
+		// Short lines: only allow brace/paren closers
+		return line.endsWith("}") || line.endsWith(")");
+	}
+	return true;
+}
 export function applyHashlineEdits(
 	content: string,
 	edits: HashlineEdit[],
@@ -441,20 +453,33 @@ export function applyHashlineEdits(
 					// Auto-correct trailing duplicate: if the last replacement line duplicates
 					// the next surviving line after the range, the model likely echoed the
 					// boundary. Strip the duplicate to avoid doubled lines.
-					const trailingReplacementLine = newLines[newLines.length - 1];
-					const nextSurvivingLine = fileLines[edit.end.line];
+					const trailingReplacementLine = newLines[newLines.length - 1]?.trimEnd();
+					const nextSurvivingLine = fileLines[edit.end.line]?.trimEnd();
 					if (
-						trailingReplacementLine !== undefined &&
-						trailingReplacementLine.trim().length > 0 &&
-						nextSurvivingLine !== undefined &&
-						trailingReplacementLine.trim() === nextSurvivingLine.trim() &&
+						shouldAutocorrect(trailingReplacementLine, nextSurvivingLine) &&
 						// Safety: only correct when end-line content differs from the duplicate.
 						// If end already points to the boundary, matching next line is coincidence.
-						fileLines[edit.end.line - 1].trim() !== trailingReplacementLine.trim()
+						fileLines[edit.end.line - 1]?.trimEnd() !== trailingReplacementLine
 					) {
 						newLines.pop();
 						warnings.push(
-							`Auto-corrected range replace ${edit.pos.line}#${edit.pos.hash}-${edit.end.line}#${edit.end.hash}: removed trailing replacement line "${trailingReplacementLine.trim()}" that duplicated next surviving line`,
+							`Auto-corrected range replace ${edit.pos.line}#${edit.pos.hash}-${edit.end.line}#${edit.end.hash}: removed trailing replacement line "${trailingReplacementLine}" that duplicated next surviving line`,
+						);
+					}
+					// Auto-correct leading duplicate: if the first replacement line duplicates
+					// the line before the range start, the model likely echoed the preceding
+					// context. Strip the duplicate.
+					const leadingReplacementLine = newLines[0]?.trimEnd();
+					const prevSurvivingLine = fileLines[edit.pos.line - 2]?.trimEnd();
+					if (
+						shouldAutocorrect(leadingReplacementLine, prevSurvivingLine) &&
+						// Safety: only correct when pos-line content differs from the duplicate.
+						// If pos already points to the boundary, matching prev line is coincidence.
+						fileLines[edit.pos.line - 1]?.trimEnd() !== leadingReplacementLine
+					) {
+						newLines.shift();
+						warnings.push(
+							`Auto-corrected range replace ${edit.pos.line}#${edit.pos.hash}-${edit.end.line}#${edit.end.hash}: removed leading replacement line "${leadingReplacementLine}" that duplicated preceding surviving line`,
 						);
 					}
 					fileLines.splice(edit.pos.line - 1, count, ...newLines);

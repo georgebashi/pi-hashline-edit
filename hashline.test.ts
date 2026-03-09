@@ -128,6 +128,21 @@ describe("stripNewLinePrefixes", () => {
 		const lines = ["normal", "text", "here"];
 		expect(stripNewLinePrefixes(lines)).toEqual(["normal", "text", "here"]);
 	});
+
+	it("preserves '# Note:' comment lines (not matched by prefix regex)", () => {
+		const lines = ["# Note: this is important"];
+		expect(stripNewLinePrefixes(lines)).toEqual(["# Note: this is important"]);
+	});
+
+	it("preserves '# TODO:' comment lines", () => {
+		const lines = ["# TODO: fix this later"];
+		expect(stripNewLinePrefixes(lines)).toEqual(["# TODO: fix this later"]);
+	});
+
+	it("preserves '# FIXME:' comment lines", () => {
+		const lines = ["# FIXME: broken edge case"];
+		expect(stripNewLinePrefixes(lines)).toEqual(["# FIXME: broken edge case"]);
+	});
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -165,6 +180,10 @@ describe("hashlineParseText", () => {
 		// "" → split → [""] → no trailing trim (single element) → [""]
 		// Actually: "" → split → [""] → last is empty → slice(0, -1) → []
 		expect(hashlineParseText("")).toEqual([]);
+	});
+	it("preserves '# Note:' comment in hashlineParseText", () => {
+		// Regression: HASHLINE_PREFIX_RE must not match '# Note:' as a hash prefix
+		expect(hashlineParseText(["# Note: important"])).toEqual(["# Note: important"]);
 	});
 });
 
@@ -524,6 +543,55 @@ describe("applyHashlineEdits — heuristics", () => {
 		const result = applyHashlineEdits(content, edits);
 		expect(result.content).toBe("ALPHA\n\n\ngamma");
 		expect(result.warnings).toBeUndefined();
+	});
+
+	it("auto-corrects leading duplicate on range replace", () => {
+		const content = "before();\nif (ok) {\n  run();\n}\nafter();";
+		const edits: HashlineEdit[] = [
+			{
+				op: "replace",
+				pos: makeTag(2, "if (ok) {"),
+				end: makeTag(3, "  run();"),
+				// Model echoed the line before the range start
+				lines: ["before();", "if (ok) {", "  runSafe();"],
+			},
+		];
+		const result = applyHashlineEdits(content, edits);
+		expect(result.content).toBe("before();\nif (ok) {\n  runSafe();\n}\nafter();");
+		expect(result.warnings).toHaveLength(1);
+		expect(result.warnings![0]).toContain("removed leading replacement line");
+	});
+
+	it("does NOT auto-correct leading duplicate for short non-brace lines", () => {
+		// shouldAutocorrect rejects short lines that aren't braces
+		const content = "x\nalpha\nbeta";
+		const edits: HashlineEdit[] = [
+			{
+				op: "replace",
+				pos: makeTag(2, "alpha"),
+				end: makeTag(3, "beta"),
+				lines: ["x", "ALPHA", "BETA"],
+			},
+		];
+		const result = applyHashlineEdits(content, edits);
+		// 'x' is too short (1 char, not a brace) so no auto-correction
+		expect(result.content).toBe("x\nx\nALPHA\nBETA");
+		expect(result.warnings).toBeUndefined();
+	});
+
+	it("auto-corrects leading duplicate for brace closers", () => {
+		const content = "}\nfunction foo() {\n  bar();\n}";
+		const edits: HashlineEdit[] = [
+			{
+				op: "replace",
+				pos: makeTag(2, "function foo() {"),
+				end: makeTag(3, "  bar();"),
+				lines: ["}", "function foo() {", "  baz();"],
+			},
+		];
+		const result = applyHashlineEdits(content, edits);
+		expect(result.content).toBe("}\nfunction foo() {\n  baz();\n}");
+		expect(result.warnings).toHaveLength(1);
 	});
 });
 

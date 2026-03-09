@@ -318,14 +318,14 @@ export function applyHashlineEdits(
 			case "append": {
 				if (edit.pos && !validate(edit.pos)) continue;
 				if (edit.lines.length === 0) {
-					edit.lines = [""]; // insert an empty line
+					throw new Error("Append with empty lines payload. Provide content to insert or remove the edit.");
 				}
 				break;
 			}
 			case "prepend": {
 				if (edit.pos && !validate(edit.pos)) continue;
 				if (edit.lines.length === 0) {
-					edit.lines = [""]; // insert an empty line
+					throw new Error("Prepend with empty lines payload. Provide content to insert or remove the edit.");
 				}
 				break;
 			}

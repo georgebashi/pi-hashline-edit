@@ -84,6 +84,15 @@ export function registerEditTool(pi: ExtensionAPI): void {
 			const resolvedMove = move ? resolveToCwd(move.replace(/^@/, ""), ctx.cwd) : undefined;
 			throwIfAborted(signal);
 
+			// ── Validate conflicting file-level operations ──
+			const hasEdits = Array.isArray(parsed.edits) && parsed.edits.length > 0;
+			const hasTextReplace = Array.isArray(parsed.text_replace) && parsed.text_replace.length > 0;
+			if (deleteFile && (move || hasEdits || hasTextReplace)) {
+				throw new Error(
+					"Conflicting file-level operations: 'delete' cannot be combined with 'move', 'edits', or 'text_replace'. Use separate calls.",
+				);
+			}
+
 			// ── File-level delete ──
 			if (deleteFile) {
 				if (existsSync(absolutePath)) {
@@ -143,6 +152,13 @@ export function registerEditTool(pi: ExtensionAPI): void {
 				await fsAccess(absolutePath, constants.R_OK | constants.W_OK);
 			} catch {
 				throw new Error(`File not found: ${path}`);
+			}
+
+			// ── Validate move destination ──
+			if (resolvedMove && resolvedMove !== absolutePath && existsSync(resolvedMove)) {
+				throw new Error(
+					`Move destination already exists: ${move}. Remove the target first or choose a different path.`,
+				);
 			}
 			throwIfAborted(signal);
 

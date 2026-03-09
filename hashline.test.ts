@@ -427,22 +427,16 @@ describe("applyHashlineEdits — noop detection", () => {
 		expect(result.noopEdits).toHaveLength(1);
 	});
 
-	it("converts empty append lines to [''] (inserts blank line, not noop)", () => {
+	it("throws on empty append lines payload", () => {
 		const content = "aaa\nbbb";
 		const edits: HashlineEdit[] = [{ op: "append", pos: makeTag(2, "bbb"), lines: [] }];
-		const result = applyHashlineEdits(content, edits);
-		// Validation converts [] to [""] for append/prepend, so it inserts a blank line
-		expect(result.content).toBe("aaa\nbbb\n");
-		expect(result.noopEdits).toBeUndefined();
+		expect(() => applyHashlineEdits(content, edits)).toThrow(/empty lines payload/);
 	});
 
-	it("converts empty prepend lines to [''] (inserts blank line, not noop)", () => {
+	it("throws on empty prepend lines payload", () => {
 		const content = "aaa\nbbb";
 		const edits: HashlineEdit[] = [{ op: "prepend", pos: makeTag(1, "aaa"), lines: [] }];
-		const result = applyHashlineEdits(content, edits);
-		// Validation converts [] to [""] for append/prepend, so it inserts a blank line
-		expect(result.content).toBe("\naaa\nbbb");
-		expect(result.noopEdits).toBeUndefined();
+		expect(() => applyHashlineEdits(content, edits)).toThrow(/empty lines payload/);
 	});
 });
 

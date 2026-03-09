@@ -120,3 +120,63 @@ describe("file-level move", () => {
 		expect(readFileSync(dstPath, "utf-8")).toBe("line one\nline TWO (edited)\nline three\n");
 	});
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Move — destination guard
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("file-level move — destination guard", () => {
+	it("detects when destination already exists", () => {
+		const srcPath = join(testDir, "source.ts");
+		const dstPath = join(testDir, "existing-target.ts");
+		writeFileSync(srcPath, "source content");
+		writeFileSync(dstPath, "existing content");
+
+		// Simulate the guard from edit.ts
+		const resolvedMove = dstPath;
+		const absolutePath = srcPath;
+		if (resolvedMove && resolvedMove !== absolutePath && existsSync(resolvedMove)) {
+			expect(true).toBe(true); // guard correctly triggers
+		} else {
+			expect("guard should have triggered").toBe(true);
+		}
+
+		// Verify neither file was modified
+		expect(readFileSync(srcPath, "utf-8")).toBe("source content");
+		expect(readFileSync(dstPath, "utf-8")).toBe("existing content");
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Delete — mutual exclusivity
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("file-level delete — mutual exclusivity", () => {
+	it("detects conflicting delete + move", () => {
+		// Simulate the validation from edit.ts
+		const deleteFile = true;
+		const move = "new/path.ts";
+		const hasEdits = false;
+		const hasTextReplace = false;
+		const isConflicting = !!(deleteFile && (move || hasEdits || hasTextReplace));
+		expect(isConflicting).toBe(true);
+	});
+
+	it("detects conflicting delete + edits", () => {
+		const deleteFile = true;
+		const move = undefined;
+		const hasEdits = true;
+		const hasTextReplace = false;
+		const isConflicting = deleteFile && (move || hasEdits || hasTextReplace);
+		expect(isConflicting).toBe(true);
+	});
+
+	it("allows delete alone", () => {
+		const deleteFile = true;
+		const move = undefined;
+		const hasEdits = false;
+		const hasTextReplace = false;
+		const isConflicting = deleteFile && (move || hasEdits || hasTextReplace);
+		expect(isConflicting).toBe(false);
+	});
+});

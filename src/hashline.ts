@@ -228,6 +228,45 @@ function shouldAutocorrect(line: string, otherLine: string): boolean {
 	}
 	return true;
 }
+
+function isEscapedTabAutocorrectEnabled(): boolean {
+	const value = process.env.PI_HASHLINE_AUTOCORRECT_ESCAPED_TABS;
+	if (value === "0") return false;
+	return true;
+}
+
+function maybeAutocorrectEscapedTabIndentation(edits: HashlineEdit[], warnings: string[]): void {
+	if (!isEscapedTabAutocorrectEnabled()) return;
+	for (const edit of edits) {
+		if (edit.lines.length === 0) continue;
+		const hasEscapedTabs = edit.lines.some(line => line.includes("\\t"));
+		if (!hasEscapedTabs) continue;
+		const hasRealTabs = edit.lines.some(line => line.includes("\t"));
+		if (hasRealTabs) continue;
+		let correctedCount = 0;
+		const corrected = edit.lines.map(line =>
+			line.replace(/^((?:\\t)+)/, escaped => {
+				correctedCount += escaped.length / 2;
+				return "\t".repeat(escaped.length / 2);
+			}),
+		);
+		if (correctedCount === 0) continue;
+		edit.lines = corrected;
+		warnings.push(
+			`Auto-corrected escaped tab indentation in edit: converted leading \\t sequence(s) to real tab characters`,
+		);
+	}
+}
+
+function maybeWarnSuspiciousUnicodeEscapePlaceholder(edits: HashlineEdit[], warnings: string[]): void {
+	for (const edit of edits) {
+		if (edit.lines.length === 0) continue;
+		if (!edit.lines.some(line => /\\uDDDD/i.test(line))) continue;
+		warnings.push(
+			`Detected literal \\uDDDD in edit content; no autocorrection applied. Verify whether this should be a real Unicode escape or plain text.`,
+		);
+	}
+}
 export function applyHashlineEdits(
 	content: string,
 	edits: HashlineEdit[],
@@ -347,6 +386,10 @@ export function applyHashlineEdits(
 		}
 	}
 	if (mismatches.length) throw new Error(formatMismatchError(mismatches, fileLines));
+
+	// Auto-correct escaped tab indentation and warn on suspicious Unicode escapes
+	maybeAutocorrectEscapedTabIndentation(edits, warnings);
+	maybeWarnSuspiciousUnicodeEscapePlaceholder(edits, warnings);
 
 	// Deduplicate identical edits
 	const seenEditKeys = new Map<string, number>();

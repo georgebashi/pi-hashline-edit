@@ -601,6 +601,93 @@ describe("applyHashlineEdits — heuristics", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// applyHashlineEdits — escaped tab auto-correction
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("applyHashlineEdits — escaped tab auto-correction", () => {
+	it("auto-corrects leading \\t to real tabs", () => {
+		const content = "\tfunction foo() {\n\t\treturn 1;\n\t}";
+		const edits: HashlineEdit[] = [
+			{
+				op: "replace",
+				pos: makeTag(2, "\t\treturn 1;"),
+				lines: ["\\t\\treturn 2;"],
+			},
+		];
+		const result = applyHashlineEdits(content, edits);
+		expect(result.content).toBe("\tfunction foo() {\n\t\treturn 2;\n\t}");
+		expect(result.warnings).toHaveLength(1);
+		expect(result.warnings![0]).toContain("Auto-corrected escaped tab indentation");
+	});
+
+	it("does NOT auto-correct when real tabs are already present", () => {
+		const content = "alpha\nbeta";
+		const edits: HashlineEdit[] = [
+			{
+				op: "replace",
+				pos: makeTag(1, "alpha"),
+				// Mix of real tab and escaped tab — skip correction
+				lines: ["\treal", "\\tescaped"],
+			},
+		];
+		const result = applyHashlineEdits(content, edits);
+		expect(result.content).toBe("\treal\n\\tescaped\nbeta");
+		expect(result.warnings).toBeUndefined();
+	});
+
+	it("does NOT auto-correct when no leading \\t exists", () => {
+		const content = "alpha\nbeta";
+		const edits: HashlineEdit[] = [
+			{
+				op: "replace",
+				pos: makeTag(1, "alpha"),
+				lines: ["mid\\tstuff"],
+			},
+		];
+		const result = applyHashlineEdits(content, edits);
+		// \\t in middle, not leading — regex only replaces ^(\\t)+
+		expect(result.content).toBe("mid\\tstuff\nbeta");
+		expect(result.warnings).toBeUndefined();
+	});
+
+	it("warns on suspicious \\uDDDD placeholder", () => {
+		const content = "alpha\nbeta";
+		const edits: HashlineEdit[] = [
+			{
+				op: "replace",
+				pos: makeTag(1, "alpha"),
+				lines: ["const x = \\uDDDD;"],
+			},
+		];
+		const result = applyHashlineEdits(content, edits);
+		expect(result.warnings).toHaveLength(1);
+		expect(result.warnings![0]).toContain("\\uDDDD");
+	});
+
+	it("can be disabled via env var", () => {
+		const original = process.env.PI_HASHLINE_AUTOCORRECT_ESCAPED_TABS;
+		try {
+			process.env.PI_HASHLINE_AUTOCORRECT_ESCAPED_TABS = "0";
+			const content = "\tfunction foo() {\n\t\treturn 1;\n\t}";
+			const edits: HashlineEdit[] = [
+				{
+					op: "replace",
+					pos: makeTag(2, "\t\treturn 1;"),
+					lines: ["\\t\\treturn 2;"],
+				},
+			];
+			const result = applyHashlineEdits(content, edits);
+			// Escaped tabs left as-is
+			expect(result.content).toBe("\tfunction foo() {\n\\t\\treturn 2;\n\t}");
+			expect(result.warnings).toBeUndefined();
+		} finally {
+			if (original === undefined) delete process.env.PI_HASHLINE_AUTOCORRECT_ESCAPED_TABS;
+			else process.env.PI_HASHLINE_AUTOCORRECT_ESCAPED_TABS = original;
+		}
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // applyHashlineEdits — relocation
 // ═══════════════════════════════════════════════════════════════════════════
 
